@@ -50,3 +50,4 @@ The manifest includes absolute paths for source, backup root, version directory,
 - Exclude patterns are matched by `tar` against paths inside the backup.
 - Restore overwrites existing files but does not delete extra files in directories.
 - Patterns are shell globs; avoid spaces in patterns.
+imatest
