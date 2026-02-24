@@ -13,7 +13,8 @@ cp bak /usr/local/bin/bak
 ## Usage
 
 ```sh
-bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--dry-run|--apply] <path>
+bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--diff] [--dry-run|--apply] <path>
+bak --diff [--version ID] [--root PATH] <path> [path ...]
 ```
 
 Backup runs apply by default. Revert runs `--dry-run` by default; use `--apply` to overwrite.
@@ -26,6 +27,9 @@ bak --list ~/.config/app.conf
 bak --revert --apply ~/.config/app.conf
 bak --revert --version 20260224T120501Z --apply ~/.config/app.conf
 bak --apply --exclude "*.bin" --exclude "*.png" ~/data
+bak --diff ~/.config/app.conf
+bak --diff --version 20260224T120501Z ~/.config/app.conf
+bak --diff ~/.config/app.conf ~/.config/other.conf
 ```
 
 ## Storage Layout
@@ -50,4 +54,4 @@ The manifest includes absolute paths for source, backup root, version directory,
 - Exclude patterns are matched by `tar` against paths inside the backup.
 - Restore overwrites existing files but does not delete extra files in directories.
 - Patterns are shell globs; avoid spaces in patterns.
-imatest
+- `--diff` supports multiple paths; avoid spaces in paths.

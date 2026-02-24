@@ -68,4 +68,12 @@ if grep -q "b.bin" "$manifest"; then
   fail "expected excluded binary not to appear in manifest"
 fi
 
+echo "scenario: diff file"
+printf 'diff\n' > "$file"
+"$BAK_BIN" --root "$backup_root" --diff "$file" >/dev/null || true
+
+echo "scenario: diff directory"
+printf 'beta\n' > "$dir/sub/a.txt"
+"$BAK_BIN" --root "$backup_root" --diff "$dir" >/dev/null || true
+
 echo "ok"

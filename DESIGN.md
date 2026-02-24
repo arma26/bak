@@ -16,13 +16,18 @@ Non-goals
 - Content-aware diffs between versions.
 
 CLI
-bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--dry-run|--apply] <path>
+bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--diff] [--dry-run|--apply] <path>
+bak --diff [--version ID] [--root PATH] <path> [path ...]
 
 Behavior
 - Default backup root: ~/.bak
 - Default execution mode:
   - Backup: apply (writes backup by default).
   - Revert: dry-run (requires --apply to overwrite).
+- Diff:
+  - Non-destructive; ignores --dry-run/--apply.
+  - Compares current path(s) against the most recent backup or --version.
+  - For directories, extract archive to a temp dir and run recursive diff.
 - `bak <path>`:
   - Create a new version directory under ~/.bak.
   - Create a tar archive for both files and directories.

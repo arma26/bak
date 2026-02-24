@@ -6,7 +6,8 @@ usage() {
 bak - versioned backups for files and directories
 
 Usage:
-  bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--dry-run|--apply] <path>
+  bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--diff] [--dry-run|--apply] <path>
+  bak --diff [--version ID] [--root PATH] <path> [path ...]
 
 Defaults:
   Backup runs apply by default; revert runs dry-run by default.
@@ -18,6 +19,9 @@ Examples:
   bak --revert --apply ~/.config/app.conf
   bak --revert --version 20260224T120501Z --apply ~/.config/app.conf
   bak --apply --exclude "*.bin" --exclude "*.png" ~/data
+  bak --diff ~/.config/app.conf
+  bak --diff --version 20260224T120501Z ~/.config/app.conf
+  bak --diff ~/.config/app.conf ~/.config/other.conf
 EOF
 }
 
@@ -69,6 +73,44 @@ pick_hash_tool() {
     return
   fi
   return 1
+}
+
+pick_diff_tool() {
+  if diff --help 2>&1 | grep -q -- '--color'; then
+    echo "diff --color=always"
+    return
+  fi
+  if command -v colordiff >/dev/null 2>&1; then
+    echo "colordiff"
+    return
+  fi
+  echo "diff"
+}
+
+run_diff() {
+  left="$1"
+  right="$2"
+  tool="$(pick_diff_tool)"
+  if [ "$tool" = "diff --color=always" ]; then
+    diff --color=always -u "$left" "$right"
+  elif [ "$tool" = "colordiff" ]; then
+    colordiff -u "$left" "$right"
+  else
+    diff -u "$left" "$right"
+  fi
+}
+
+run_diff_dir() {
+  left="$1"
+  right="$2"
+  tool="$(pick_diff_tool)"
+  if [ "$tool" = "diff --color=always" ]; then
+    diff --color=always -ru "$left" "$right"
+  elif [ "$tool" = "colordiff" ]; then
+    colordiff -ru "$left" "$right"
+  else
+    diff -ru "$left" "$right"
+  fi
 }
 
 hash_file() {
@@ -171,8 +213,10 @@ ROOT=""
 EXCLUDE_PATTERNS=""
 DO_LIST=0
 DO_REVERT=0
+DO_DIFF=0
 VERSION_ID=""
 TARGET_PATH=""
+EXTRA_PATHS=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -191,6 +235,9 @@ while [ $# -gt 0 ]; do
       ;;
     --revert)
       DO_REVERT=1
+      ;;
+    --diff)
+      DO_DIFF=1
       ;;
     --version)
       shift
@@ -216,9 +263,10 @@ while [ $# -gt 0 ]; do
       ;;
     *)
       if [ -n "$TARGET_PATH" ]; then
-        die "only one path is supported"
+        EXTRA_PATHS="${EXTRA_PATHS} $1"
+      else
+        TARGET_PATH="$1"
       fi
-      TARGET_PATH="$1"
       ;;
   esac
   shift
@@ -226,9 +274,10 @@ done
 
 if [ $# -gt 0 ]; then
   if [ -n "$TARGET_PATH" ]; then
-    die "only one path is supported"
+    EXTRA_PATHS="${EXTRA_PATHS} $1"
+  else
+    TARGET_PATH="$1"
   fi
-  TARGET_PATH="$1"
 fi
 
 [ -n "$TARGET_PATH" ] || die "path is required"
@@ -239,6 +288,18 @@ fi
 
 if [ "$DO_LIST" -eq 1 ] && [ "$DO_REVERT" -eq 1 ]; then
   die "--list and --revert are mutually exclusive"
+fi
+
+if [ "$DO_DIFF" -eq 1 ] && [ "$DO_LIST" -eq 1 ]; then
+  die "--diff and --list are mutually exclusive"
+fi
+
+if [ "$DO_DIFF" -eq 1 ] && [ "$DO_REVERT" -eq 1 ]; then
+  die "--diff and --revert are mutually exclusive"
+fi
+
+if [ -n "$EXTRA_PATHS" ] && [ "$DO_DIFF" -eq 0 ]; then
+  die "only --diff supports multiple paths"
 fi
 
 if [ -z "$ROOT" ]; then
@@ -252,6 +313,47 @@ if [ -z "$DRY_RUN" ]; then
   else
     DRY_RUN=0
   fi
+fi
+
+diff_one() {
+  target="$1"
+  source_abs="$(abs_path_maybe_missing "$target")" || die "unable to resolve path: $target"
+  key_dir="${ROOT}/$(escape_key "$source_abs")"
+  if [ ! -d "$key_dir" ]; then
+    die "no backups found for $source_abs"
+  fi
+  if [ -z "$VERSION_ID" ]; then
+    version_id="$(ls -1 "$key_dir" | sort -r | head -n 1)"
+  else
+    version_id="$VERSION_ID"
+  fi
+  [ -n "$version_id" ] || die "no backup versions available"
+  version_dir="$key_dir/$version_id"
+  archive="$version_dir/data.tar"
+  if [ ! -f "$archive" ]; then
+    die "backup archive not found: $archive"
+  fi
+
+  tmp_dir="$(mktemp -d -t bak-diff.XXXXXX)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  tar -xpf "$archive" -C "$tmp_dir"
+
+  if [ -d "$source_abs" ]; then
+    base="$(basename -- "$source_abs")"
+    run_diff_dir "$source_abs" "$tmp_dir/$base" || return 1
+  else
+    base="$(basename -- "$source_abs")"
+    run_diff "$source_abs" "$tmp_dir/$base" || return 1
+  fi
+}
+
+if [ "$DO_DIFF" -eq 1 ]; then
+  status=0
+  diff_one "$TARGET_PATH" || status=1
+  for extra in $EXTRA_PATHS; do
+    diff_one "$extra" || status=1
+  done
+  exit "$status"
 fi
 
 SOURCE_ABS="$(abs_path_maybe_missing "$TARGET_PATH")" || die "unable to resolve path: $TARGET_PATH"
