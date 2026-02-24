@@ -39,15 +39,24 @@ Default root is `~/.bak` unless overridden by `--root`.
 Each target gets a directory:
 
 ```
-~/.bak/<escaped_source_path>/<version_id>/
+~/.bak/<key>/<version_id>/
 ```
 
 Each version contains:
 
-- `data.tar`
+- `<key>.tar`
 - `manifest.txt`
 
 The manifest includes absolute paths for source, backup root, version directory, and archive, plus `sha256` hashes for each file in the backup.
+
+Key scheme:
+
+```
+parent = absolute parent directory path
+base = basename of target path
+key = base64url(parent) + "_" + base
+```
+
 
 ## Notes
 

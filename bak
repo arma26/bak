@@ -59,8 +59,23 @@ abs_path_maybe_missing() {
   fi
 }
 
-escape_key() {
-  printf '%s' "$1" | sed 's|/|__|g'
+base64url() {
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$1" | openssl base64 -A | tr '+/' '-_' | tr -d '='
+    return
+  fi
+  if command -v base64 >/dev/null 2>&1; then
+    printf '%s' "$1" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '='
+    return
+  fi
+  return 1
+}
+
+make_key() {
+  parent="$1"
+  base="$2"
+  parent_b64="$(base64url "$parent")" || return 1
+  printf '%s_%s\n' "$parent_b64" "$base"
 }
 
 pick_hash_tool() {
@@ -318,7 +333,10 @@ fi
 diff_one() {
   target="$1"
   source_abs="$(abs_path_maybe_missing "$target")" || die "unable to resolve path: $target"
-  key_dir="${ROOT}/$(escape_key "$source_abs")"
+  source_parent="$(dirname -- "$source_abs")"
+  source_base="$(basename -- "$source_abs")"
+  key="$(make_key "$source_parent" "$source_base")" || die "unable to base64-encode path"
+  key_dir="${ROOT}/${key}"
   if [ ! -d "$key_dir" ]; then
     die "no backups found for $source_abs"
   fi
@@ -329,7 +347,7 @@ diff_one() {
   fi
   [ -n "$version_id" ] || die "no backup versions available"
   version_dir="$key_dir/$version_id"
-  archive="$version_dir/data.tar"
+  archive="$version_dir/${key}.tar"
   if [ ! -f "$archive" ]; then
     die "backup archive not found: $archive"
   fi
@@ -357,7 +375,10 @@ if [ "$DO_DIFF" -eq 1 ]; then
 fi
 
 SOURCE_ABS="$(abs_path_maybe_missing "$TARGET_PATH")" || die "unable to resolve path: $TARGET_PATH"
-KEY_DIR="${ROOT}/$(escape_key "$SOURCE_ABS")"
+SOURCE_PARENT="$(dirname -- "$SOURCE_ABS")"
+SOURCE_BASE="$(basename -- "$SOURCE_ABS")"
+KEY="$(make_key "$SOURCE_PARENT" "$SOURCE_BASE")" || die "unable to base64-encode path"
+KEY_DIR="${ROOT}/${KEY}"
 
 if [ "$DO_LIST" -eq 1 ]; then
   if [ ! -d "$KEY_DIR" ]; then
@@ -376,7 +397,7 @@ if [ "$DO_REVERT" -eq 1 ]; then
   fi
   [ -n "$VERSION_ID" ] || die "no backup versions available"
   VERSION_DIR="$KEY_DIR/$VERSION_ID"
-  ARCHIVE="$VERSION_DIR/data.tar"
+  ARCHIVE="$VERSION_DIR/${KEY}.tar"
   if [ ! -f "$ARCHIVE" ]; then
     die "backup archive not found: $ARCHIVE"
   fi
@@ -420,7 +441,7 @@ fi
 VERSION_DIR="$KEY_DIR/$VERSION_ID"
 ensure_dir "$VERSION_DIR"
 
-ARCHIVE="$VERSION_DIR/data.tar"
+ARCHIVE="$VERSION_DIR/${KEY}.tar"
 MANIFEST="$VERSION_DIR/manifest.txt"
 
 SRC_PARENT="$(dirname -- "$SOURCE_ABS")"

@@ -46,10 +46,10 @@ Behavior
 
 Storage Layout
 - Root: ~/.bak
-- Target key directory: ~/.bak/<escaped_source_path>/
-- Version directory: ~/.bak/<escaped_source_path>/<version_id>/
+- Target key directory: ~/.bak/<key>/
+- Version directory: ~/.bak/<key>/<version_id>/
 - Files:
-  - data.tar
+  - <key>.tar
   - manifest.txt
 
 Version ID
@@ -67,6 +67,14 @@ Error Handling
 - Missing path, unreadable path, bad flags -> exit non-zero with clear error.
 - `--version` without `--revert` -> error.
 - `--list` without path -> error.
+
+Key Scheme
+- parent = absolute parent directory path
+- base = basename of target path
+- key = base64url(parent) + "_" + base
+
+Compatibility
+- Old escaped-path backups are not read.
 
 Implementation Notes
 - Use guard clauses to avoid deep nesting.
