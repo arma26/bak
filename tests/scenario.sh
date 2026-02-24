@@ -1,0 +1,67 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
+BAK_BIN="$ROOT_DIR/bak"
+
+fail() {
+  echo "test failure: $*" >&2
+  exit 1
+}
+
+tmp="$(mktemp -d -t bak-test.XXXXXX)"
+cleanup() {
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
+
+backup_root="$tmp/backup-root"
+work="$tmp/work"
+mkdir -p "$work"
+
+file="$work/sample.txt"
+printf 'one\n' > "$file"
+
+if [ ! -x "$BAK_BIN" ]; then
+  fail "expected executable at $BAK_BIN"
+fi
+
+echo "scenario: file backup and revert"
+"$BAK_BIN" --root "$backup_root" --apply "$file"
+version="$("$BAK_BIN" --root "$backup_root" --list "$file" | head -n 1)"
+[ -n "$version" ] || fail "expected a version id"
+
+printf 'two\n' > "$file"
+"$BAK_BIN" --root "$backup_root" --apply --revert "$file"
+content="$(cat "$file")"
+[ "$content" = "one" ] || fail "expected reverted content to be 'one'"
+
+echo "scenario: version selection"
+printf 'three\n' > "$file"
+"$BAK_BIN" --root "$backup_root" --apply "$file"
+old_version="$version"
+new_version="$("$BAK_BIN" --root "$backup_root" --list "$file" | head -n 1)"
+[ "$new_version" != "$old_version" ] || fail "expected new version to differ"
+
+printf 'four\n' > "$file"
+"$BAK_BIN" --root "$backup_root" --apply --revert --version "$old_version" "$file"
+content="$(cat "$file")"
+[ "$content" = "one" ] || fail "expected revert to old version to restore 'one'"
+
+echo "scenario: directory backup with exclude"
+dir="$work/dir"
+mkdir -p "$dir/sub"
+printf 'alpha\n' > "$dir/sub/a.txt"
+printf '\x00\x01\x02' > "$dir/sub/b.bin"
+"$BAK_BIN" --root "$backup_root" --apply --exclude "*.bin" "$dir"
+dir_abs="$(cd "$dir" && pwd -P)"
+dir_key="$(printf '%s' "$dir_abs" | sed 's|/|__|g')"
+version_id="$("$BAK_BIN" --root "$backup_root" --list "$dir" | head -n 1)"
+version_dir="$backup_root/$dir_key/$version_id"
+manifest="$version_dir/manifest.txt"
+[ -f "$manifest" ] || fail "expected manifest at $manifest"
+if grep -q "b.bin" "$manifest"; then
+  fail "expected excluded binary not to appear in manifest"
+fi
+
+echo "ok"

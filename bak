@@ -1,0 +1,330 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+bak - versioned backups for files and directories
+
+Usage:
+  bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--dry-run|--apply] <path>
+
+Defaults:
+  --dry-run is on. Use --apply to write changes.
+
+Examples:
+  bak ~/.config/app.conf
+  bak --apply ~/.config/app.conf
+  bak --list ~/.config/app.conf
+  bak --revert --apply ~/.config/app.conf
+  bak --revert --version 20260224T120501Z --apply ~/.config/app.conf
+  bak --apply --exclude "*.bin" --exclude "*.png" ~/data
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+log() {
+  printf '%s\n' "$*"
+}
+
+expand_user_path() {
+  case "$1" in
+    "~") printf '%s\n' "$HOME" ;;
+    "~/"*) printf '%s/%s\n' "$HOME" "${1#~/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+abs_path_maybe_missing() {
+  target="$1"
+  if [ -e "$target" ]; then
+    if [ -d "$target" ]; then
+      (cd "$target" && pwd -P) || return 1
+    else
+      dir="$(dirname -- "$target")"
+      base="$(basename -- "$target")"
+      (cd "$dir" && printf '%s/%s\n' "$(pwd -P)" "$base") || return 1
+    fi
+  else
+    dir="$(dirname -- "$target")"
+    base="$(basename -- "$target")"
+    (cd "$dir" && printf '%s/%s\n' "$(pwd -P)" "$base") || return 1
+  fi
+}
+
+escape_key() {
+  printf '%s' "$1" | sed 's|/|__|g'
+}
+
+pick_hash_tool() {
+  if command -v shasum >/dev/null 2>&1; then
+    echo "shasum"
+    return
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "sha256sum"
+    return
+  fi
+  return 1
+}
+
+hash_file() {
+  tool="$1"
+  file="$2"
+  if [ "$tool" = "shasum" ]; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  else
+    sha256sum "$file" | awk '{print $1}'
+  fi
+}
+
+matches_exclude() {
+  candidate="$1"
+  for pat in $EXCLUDE_PATTERNS; do
+    case "$candidate" in
+      $pat) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+ensure_dir() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "dry-run: mkdir -p $1"
+  else
+    mkdir -p "$1"
+  fi
+}
+
+run_tar_create() {
+  archive="$1"
+  src_parent="$2"
+  src_base="$3"
+
+  set -- tar -cpf "$archive"
+  for pat in $EXCLUDE_PATTERNS; do
+    set -- "$@" --exclude "$pat"
+  done
+  set -- "$@" -C "$src_parent" "$src_base"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "dry-run: $*"
+  else
+    "$@"
+  fi
+}
+
+run_tar_extract() {
+  archive="$1"
+  dest_parent="$2"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "dry-run: tar -xpf $archive -C $dest_parent"
+  else
+    tar -xpf "$archive" -C "$dest_parent"
+  fi
+}
+
+write_manifest() {
+  manifest_path="$1"
+  src_abs="$2"
+  backup_root_abs="$3"
+  version_dir_abs="$4"
+  archive_abs="$5"
+  hash_tool="$6"
+
+  tmp_manifest="${manifest_path}.tmp.$$"
+  {
+    printf 'SOURCE_ABS=%s\n' "$src_abs"
+    printf 'BACKUP_ROOT_ABS=%s\n' "$backup_root_abs"
+    printf 'BACKUP_DIR_ABS=%s\n' "$version_dir_abs"
+    printf 'ARCHIVE_ABS=%s\n' "$archive_abs"
+    printf 'FILES_BEGIN\n'
+  } > "$tmp_manifest"
+
+  tar -tf "$archive_abs" | while IFS= read -r entry; do
+    case "$entry" in
+      */) continue ;;
+    esac
+    if [ -d "$src_abs" ]; then
+      full_path="$src_abs/$entry"
+      rel_path="$entry"
+    else
+      full_path="$src_abs"
+      rel_path="$(basename -- "$src_abs")"
+    fi
+    if [ -e "$full_path" ]; then
+      hash="$(hash_file "$hash_tool" "$full_path")"
+      printf '%s\t%s\n' "$hash" "$rel_path" >> "$tmp_manifest"
+    fi
+  done
+  printf 'FILES_END\n' >> "$tmp_manifest"
+
+  mv "$tmp_manifest" "$manifest_path"
+}
+
+DRY_RUN=1
+ROOT=""
+EXCLUDE_PATTERNS=""
+DO_LIST=0
+DO_REVERT=0
+VERSION_ID=""
+TARGET_PATH=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root)
+      shift
+      [ $# -gt 0 ] || die "--root requires a path"
+      ROOT="$1"
+      ;;
+    --exclude)
+      shift
+      [ $# -gt 0 ] || die "--exclude requires a pattern"
+      EXCLUDE_PATTERNS="${EXCLUDE_PATTERNS} $1"
+      ;;
+    --list)
+      DO_LIST=1
+      ;;
+    --revert)
+      DO_REVERT=1
+      ;;
+    --version)
+      shift
+      [ $# -gt 0 ] || die "--version requires an id"
+      VERSION_ID="$1"
+      ;;
+    --apply)
+      DRY_RUN=0
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "unknown flag: $1"
+      ;;
+    *)
+      if [ -n "$TARGET_PATH" ]; then
+        die "only one path is supported"
+      fi
+      TARGET_PATH="$1"
+      ;;
+  esac
+  shift
+done
+
+if [ $# -gt 0 ]; then
+  if [ -n "$TARGET_PATH" ]; then
+    die "only one path is supported"
+  fi
+  TARGET_PATH="$1"
+fi
+
+[ -n "$TARGET_PATH" ] || die "path is required"
+
+if [ -n "$VERSION_ID" ] && [ "$DO_REVERT" -eq 0 ]; then
+  die "--version requires --revert"
+fi
+
+if [ "$DO_LIST" -eq 1 ] && [ "$DO_REVERT" -eq 1 ]; then
+  die "--list and --revert are mutually exclusive"
+fi
+
+if [ -z "$ROOT" ]; then
+  ROOT="${HOME}/.bak"
+fi
+ROOT="$(expand_user_path "$ROOT")"
+
+SOURCE_ABS="$(abs_path_maybe_missing "$TARGET_PATH")" || die "unable to resolve path: $TARGET_PATH"
+KEY_DIR="${ROOT}/$(escape_key "$SOURCE_ABS")"
+
+if [ "$DO_LIST" -eq 1 ]; then
+  if [ ! -d "$KEY_DIR" ]; then
+    die "no backups found for $SOURCE_ABS"
+  fi
+  ls -1 "$KEY_DIR" | sort -r
+  exit 0
+fi
+
+if [ "$DO_REVERT" -eq 1 ]; then
+  if [ ! -d "$KEY_DIR" ]; then
+    die "no backups found for $SOURCE_ABS"
+  fi
+  if [ -z "$VERSION_ID" ]; then
+    VERSION_ID="$(ls -1 "$KEY_DIR" | sort -r | head -n 1)"
+  fi
+  [ -n "$VERSION_ID" ] || die "no backup versions available"
+  VERSION_DIR="$KEY_DIR/$VERSION_ID"
+  ARCHIVE="$VERSION_DIR/data.tar"
+  if [ ! -f "$ARCHIVE" ]; then
+    die "backup archive not found: $ARCHIVE"
+  fi
+  DEST_PARENT="$(dirname -- "$SOURCE_ABS")"
+  ensure_dir "$DEST_PARENT"
+  run_tar_extract "$ARCHIVE" "$DEST_PARENT"
+  exit 0
+fi
+
+if [ ! -e "$SOURCE_ABS" ]; then
+  die "path does not exist: $SOURCE_ABS"
+fi
+if [ ! -r "$SOURCE_ABS" ]; then
+  die "path is not readable: $SOURCE_ABS"
+fi
+
+if [ -n "$EXCLUDE_PATTERNS" ] && [ -f "$SOURCE_ABS" ]; then
+  if matches_exclude "$SOURCE_ABS"; then
+    die "file is excluded by pattern"
+  fi
+  if matches_exclude "$(basename -- "$SOURCE_ABS")"; then
+    die "file is excluded by pattern"
+  fi
+fi
+
+HASH_TOOL="$(pick_hash_tool)" || die "no sha256 tool found (need shasum or sha256sum)"
+
+ensure_dir "$ROOT"
+ensure_dir "$KEY_DIR"
+
+BASE_VERSION="$(date -u +%Y%m%dT%H%M%SZ)"
+VERSION_ID="$BASE_VERSION"
+if [ -d "$KEY_DIR/$VERSION_ID" ]; then
+  i=1
+  while [ -d "$KEY_DIR/${BASE_VERSION}-$i" ]; do
+    i=$((i + 1))
+  done
+  VERSION_ID="${BASE_VERSION}-$i"
+fi
+
+VERSION_DIR="$KEY_DIR/$VERSION_ID"
+ensure_dir "$VERSION_DIR"
+
+ARCHIVE="$VERSION_DIR/data.tar"
+MANIFEST="$VERSION_DIR/manifest.txt"
+
+SRC_PARENT="$(dirname -- "$SOURCE_ABS")"
+SRC_BASE="$(basename -- "$SOURCE_ABS")"
+
+run_tar_create "$ARCHIVE" "$SRC_PARENT" "$SRC_BASE"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  log "dry-run: write manifest $MANIFEST"
+  exit 0
+fi
+
+BACKUP_ROOT_ABS="$(abs_path_maybe_missing "$ROOT")" || die "unable to resolve root: $ROOT"
+VERSION_DIR_ABS="$(abs_path_maybe_missing "$VERSION_DIR")" || die "unable to resolve version dir: $VERSION_DIR"
+ARCHIVE_ABS="$(abs_path_maybe_missing "$ARCHIVE")" || die "unable to resolve archive: $ARCHIVE"
+
+write_manifest "$MANIFEST" "$SOURCE_ABS" "$BACKUP_ROOT_ABS" "$VERSION_DIR_ABS" "$ARCHIVE_ABS" "$HASH_TOOL"
