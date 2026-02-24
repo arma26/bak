@@ -49,7 +49,7 @@ Each version contains:
 
 The manifest includes absolute paths for source, backup root, version directory, and archive, plus `sha256` hashes for each file in the backup.
 
-Key scheme:
+Key scheme (path keying, not a hash of contents):
 
 ```
 parent = absolute parent directory path

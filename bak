@@ -358,10 +358,10 @@ diff_one() {
 
   if [ -d "$source_abs" ]; then
     base="$(basename -- "$source_abs")"
-    run_diff_dir "$source_abs" "$tmp_dir/$base" || return 1
+    run_diff_dir "$tmp_dir/$base" "$source_abs" || return 1
   else
     base="$(basename -- "$source_abs")"
-    run_diff "$source_abs" "$tmp_dir/$base" || return 1
+    run_diff "$tmp_dir/$base" "$source_abs" || return 1
   fi
 }
 
