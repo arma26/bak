@@ -46,6 +46,7 @@ printf 'three\n' > "$file"
 old_version="$version"
 new_version="$("$BAK_BIN" --root "$backup_root" --list "$file" | head -n 1)"
 [ "$new_version" != "$old_version" ] || fail "expected new version to differ"
+latest_content="three"
 
 printf 'four\n' > "$file"
 "$BAK_BIN" --root "$backup_root" --apply --revert --version "$old_version" "$file"
@@ -70,10 +71,15 @@ fi
 
 echo "scenario: diff file"
 printf 'diff\n' > "$file"
-"$BAK_BIN" --root "$backup_root" --diff "$file" >/dev/null || true
+"$BAK_BIN" --root "$backup_root" --diff "$file" >/dev/null 2>&1 && fail "expected diff to detect changes"
+printf '%s\n' "$latest_content" > "$file"
+"$BAK_BIN" --root "$backup_root" --diff "$file" >/dev/null 2>&1 || fail "expected diff to report no changes"
 
 echo "scenario: diff directory"
 printf 'beta\n' > "$dir/sub/a.txt"
-"$BAK_BIN" --root "$backup_root" --diff "$dir" >/dev/null || true
+"$BAK_BIN" --root "$backup_root" --diff "$dir" >/dev/null 2>&1 && fail "expected directory diff to detect changes"
+printf 'alpha\n' > "$dir/sub/a.txt"
+mv "$dir/sub/b.bin" "$tmp/b.bin"
+"$BAK_BIN" --root "$backup_root" --diff "$dir" >/dev/null 2>&1 || fail "expected directory diff to report no changes"
 
 echo "ok"
