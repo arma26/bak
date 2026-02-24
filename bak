@@ -9,7 +9,7 @@ Usage:
   bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--dry-run|--apply] <path>
 
 Defaults:
-  --dry-run is on. Use --apply to write changes.
+  Backup runs apply by default; revert runs dry-run by default.
 
 Examples:
   bak ~/.config/app.conf
@@ -166,7 +166,7 @@ write_manifest() {
   mv "$tmp_manifest" "$manifest_path"
 }
 
-DRY_RUN=1
+DRY_RUN=""
 ROOT=""
 EXCLUDE_PATTERNS=""
 DO_LIST=0
@@ -245,6 +245,14 @@ if [ -z "$ROOT" ]; then
   ROOT="${HOME}/.bak"
 fi
 ROOT="$(expand_user_path "$ROOT")"
+
+if [ -z "$DRY_RUN" ]; then
+  if [ "$DO_REVERT" -eq 1 ]; then
+    DRY_RUN=1
+  else
+    DRY_RUN=0
+  fi
+fi
 
 SOURCE_ABS="$(abs_path_maybe_missing "$TARGET_PATH")" || die "unable to resolve path: $TARGET_PATH"
 KEY_DIR="${ROOT}/$(escape_key "$SOURCE_ABS")"

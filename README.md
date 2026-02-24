@@ -16,7 +16,7 @@ cp bak /usr/local/bin/bak
 bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--dry-run|--apply] <path>
 ```
 
-`--dry-run` is on by default. Use `--apply` to write changes.
+Backup runs apply by default. Revert runs `--dry-run` by default; use `--apply` to overwrite.
 
 Examples:
 

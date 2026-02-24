@@ -27,18 +27,22 @@ if [ ! -x "$BAK_BIN" ]; then
 fi
 
 echo "scenario: file backup and revert"
-"$BAK_BIN" --root "$backup_root" --apply "$file"
+"$BAK_BIN" --root "$backup_root" "$file"
 version="$("$BAK_BIN" --root "$backup_root" --list "$file" | head -n 1)"
 [ -n "$version" ] || fail "expected a version id"
 
 printf 'two\n' > "$file"
+"$BAK_BIN" --root "$backup_root" --revert "$file"
+content="$(cat "$file")"
+[ "$content" = "two" ] || fail "expected dry-run revert to keep content"
+
 "$BAK_BIN" --root "$backup_root" --apply --revert "$file"
 content="$(cat "$file")"
 [ "$content" = "one" ] || fail "expected reverted content to be 'one'"
 
 echo "scenario: version selection"
 printf 'three\n' > "$file"
-"$BAK_BIN" --root "$backup_root" --apply "$file"
+"$BAK_BIN" --root "$backup_root" "$file"
 old_version="$version"
 new_version="$("$BAK_BIN" --root "$backup_root" --list "$file" | head -n 1)"
 [ "$new_version" != "$old_version" ] || fail "expected new version to differ"
@@ -53,7 +57,7 @@ dir="$work/dir"
 mkdir -p "$dir/sub"
 printf 'alpha\n' > "$dir/sub/a.txt"
 printf '\x00\x01\x02' > "$dir/sub/b.bin"
-"$BAK_BIN" --root "$backup_root" --apply --exclude "*.bin" "$dir"
+"$BAK_BIN" --root "$backup_root" --exclude "*.bin" "$dir"
 dir_abs="$(cd "$dir" && pwd -P)"
 dir_key="$(printf '%s' "$dir_abs" | sed 's|/|__|g')"
 version_id="$("$BAK_BIN" --root "$backup_root" --list "$dir" | head -n 1)"
