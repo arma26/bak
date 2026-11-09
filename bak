@@ -8,6 +8,7 @@ bak - versioned backups for files and directories
 Usage:
   bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--diff] [--dry-run|--apply] <path>
   bak --diff [--version ID] [--root PATH] <path> [path ...]
+  bak --list [--root PATH]
 
 Defaults:
   Backup runs apply by default; revert runs dry-run by default.
@@ -16,6 +17,7 @@ Examples:
   bak ~/.config/app.conf
   bak --apply ~/.config/app.conf
   bak --list ~/.config/app.conf
+  bak --list
   bak --revert --apply ~/.config/app.conf
   bak --revert --version 20260224T120501Z --apply ~/.config/app.conf
   bak --apply --exclude "*.bin" --exclude "*.png" ~/data
@@ -295,7 +297,9 @@ if [ $# -gt 0 ]; then
   fi
 fi
 
-[ -n "$TARGET_PATH" ] || die "path is required"
+if [ -z "$TARGET_PATH" ] && [ "$DO_LIST" -eq 0 ]; then
+  die "path is required"
+fi
 
 if [ -n "$VERSION_ID" ] && [ "$DO_REVERT" -eq 0 ]; then
   die "--version requires --revert"
@@ -372,6 +376,20 @@ if [ "$DO_DIFF" -eq 1 ]; then
     diff_one "$extra" || status=1
   done
   exit "$status"
+fi
+
+# With no target, inventory the stored manifests without resolving source paths.
+if [ "$DO_LIST" -eq 1 ] && [ -z "$TARGET_PATH" ]; then
+  printf 'VERSION\tFILENAME\tDIRECTORY\n'
+  for manifest in "$ROOT"/*/*/manifest.txt; do
+    [ -f "$manifest" ] || continue
+    source_abs="$(sed -n 's/^SOURCE_ABS=//p' "$manifest" | head -n 1)"
+    [ -n "$source_abs" ] || die "source path missing in manifest: $manifest"
+    version_dir="${manifest%/manifest.txt}"
+    printf '%s\t%s\t%s\n' "${version_dir##*/}" \
+      "$(basename -- "$source_abs")" "$(dirname -- "$source_abs")"
+  done
+  exit 0
 fi
 
 SOURCE_ABS="$(abs_path_maybe_missing "$TARGET_PATH")" || die "unable to resolve path: $TARGET_PATH"

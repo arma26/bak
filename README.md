@@ -16,6 +16,7 @@ chmod +x /usr/local/bin/bak
 ```sh
 bak [--root PATH] [--exclude GLOB ...] [--list] [--version ID] [--revert] [--diff] [--dry-run|--apply] <path>
 bak --diff [--version ID] [--root PATH] <path> [path ...]
+bak --list [--root PATH]
 ```
 
 Defaults:
@@ -68,6 +69,18 @@ bak --root "$root" --diff "$work/app.conf"
 ```
 
 ## Storage Layout
+
+### List all stored versions
+
+Run `bak --list` with no path to list every stored file or directory version
+under `~/.bak`, or `bak --root /path/to/backups --list` for another backup root.
+Output is tab-separated with `VERSION`, `FILENAME`, and `DIRECTORY` columns;
+the directory is the original source parent, not the backup location. Each
+stored version has its own row, even when filenames match across directories.
+An empty or nonexistent backup root prints only the header and creates nothing.
+Original source paths need not still exist. Manifests are read as data, never executed.
+
+`bak --list <path>` still prints only that target's version IDs, newest first.
 
 Default root is `~/.bak` unless overridden by `--root`.
 
